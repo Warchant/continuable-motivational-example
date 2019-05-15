@@ -31,7 +31,7 @@ include_directories(
 )
 
 add_executable(example1
-    server.cpp
+    echo.cpp
     )
 target_link_libraries(example1
     Boost::boost

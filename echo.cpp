@@ -105,6 +105,7 @@ int main(int argc, char *argv[]) {
   try {
     boost::asio::io_context io_context;
 
+    std::cout << "listening on port 1111\n";
     server s(io_context, 1111);
 
     io_context.run();
