@@ -22,12 +22,6 @@
 #include <boost/fiber/operations.hpp>
 #include <boost/fiber/scheduler.hpp>
 
-#include "yield.hpp"
-
-#ifdef BOOST_HAS_ABI_HEADERS
-#include BOOST_ABI_PREFIX
-#endif
-
 namespace boost::fibers::asio {
 
   class round_robin : public algo::algorithm {
@@ -172,9 +166,5 @@ namespace boost::fibers::asio {
   boost::asio::io_context::id round_robin::service::id;
 
 }  // namespace boost::fibers::asio
-
-#ifdef BOOST_HAS_ABI_HEADERS
-#include BOOST_ABI_SUFFIX
-#endif
 
 #endif  // BOOST_FIBERS_ASIO_ROUND_ROBIN_H

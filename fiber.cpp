@@ -20,7 +20,6 @@
 #include <utility>
 
 #include "fiber/round_robin.hpp"
-#include "fiber/yield.hpp"
 
 using boost::asio::ip::tcp;
 using error_code = boost::system::error_code;
@@ -30,17 +29,11 @@ using future = boost::fibers::future<T>;
 template <typename T>
 using promise = boost::fibers::promise<T>;
 
-using boost::fibers::asio::yield;
-
 class session : public std::enable_shared_from_this<session> {
  public:
   session(tcp::socket socket) : socket_(std::move(socket)) {}
 
   std::string read_some(size_t size) {
-    //    error_code ec;
-    //    std::string data(size, 0);
-    //    socket_.async_read_some(boost::asio::buffer(data, size), yield[ec]);
-
     promise<size_t> p;
     future<size_t> f(p.get_future());
     std::string data(size, 0);
@@ -58,12 +51,6 @@ class session : public std::enable_shared_from_this<session> {
     size_t read = f.get();
     data.resize(read);  // we could have received less than 'size'
     return data;
-
-    //    if (ec) {
-    //      throw boost::system::system_error(ec);
-    //    }
-    //
-    //    return data;
   }
 
   void write(std::string data) {
