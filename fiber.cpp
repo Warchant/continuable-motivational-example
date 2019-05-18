@@ -134,13 +134,7 @@ int main(int argc, char *argv[]) {
     using std::chrono_literals::operator""ms;
     using std::chrono_literals::operator""s;
 
-    io_context.run_one();
-
-    std::cout << "out...\n";
-    if (!io_context.stopped()) {
-      std::cout << "stop context\n";
-      io_context.stop();
-    }
+    io_context.run();
   } catch (std::exception &e) {
     std::cerr << "Exception: " << e.what() << "\n";
   }
