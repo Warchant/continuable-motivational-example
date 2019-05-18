@@ -29,46 +29,97 @@ using future = boost::fibers::future<T>;
 template <typename T>
 using promise = boost::fibers::promise<T>;
 
+template <typename... Args>
+struct state_captor {
+  enum state_t { init, waiting, complete };
+
+  typedef boost::fibers::detail::spinlock mutex_t;
+  typedef std::unique_lock<mutex_t> lock_t;
+  typedef boost::intrusive_ptr<state_captor> ptr_t;
+
+  std::tuple<Args...> args;
+
+  mutex_t mtx_{};
+  state_t state_{init};
+  boost::fibers::context *ctx_{boost::fibers::context::active()};
+
+  void operator()(Args... a) {
+    // If originating fiber is busy testing state_ flag, wait until it
+    // has observed (completed != state_).
+    lock_t lk{mtx_};
+    state_t state = state_;
+    // Notify a subsequent yield_completion::wait() call that it need not
+    // suspend.
+    state_ = state_t::complete;
+    // set the error_code bound by yield_t
+    args = std::make_tuple(a...);
+    // unlock the lock that protects state_
+    lk.unlock();
+    // If ctx_ is still active, e.g. because the async operation
+    // immediately called its callback (this method!) before the asio
+    // async function called async_result_base::get(), we must not set it
+    // ready.
+    if (state_t::waiting == state) {
+      // wake the fiber
+      boost::fibers::context::active()->schedule(ctx_);
+    }
+  }
+
+  auto get() {
+    wait();
+    return args;
+  }
+
+  void wait() {
+    // yield_handler_base::operator()() will set state_ `complete` and
+    // attempt to wake a suspended fiber. It would be Bad if that call
+    // happened between our detecting (complete != state_) and suspending.
+    lock_t lk{mtx_};
+    // If state_ is already set, we're done here: don't suspend.
+    if (complete != state_) {
+      state_ = waiting;
+      // suspend(unique_lock<spinlock>) unlocks the lock in the act of
+      // resuming another fiber
+      boost::fibers::context::active()->suspend(lk);
+    }
+  }
+};
+
 class session : public std::enable_shared_from_this<session> {
  public:
   session(tcp::socket socket) : socket_(std::move(socket)) {}
 
   std::string read_some(size_t size) {
-    promise<size_t> p;
-    future<size_t> f(p.get_future());
     std::string data(size, 0);
+    state_captor<error_code, size_t> c;
 
-    socket_.async_read_some(
-        boost::asio::buffer(data, size),
-        [p = std::move(p)](error_code ec, size_t read) mutable {
-          if (!ec) {
-            p.set_value(read);
-          } else {
-            p.set_exception(std::exception_ptr(std::make_exception_ptr(ec)));
-          }
-        });
+    socket_.async_read_some(boost::asio::buffer(data, size),
+                            [&c](error_code e, size_t r) { c(e, r); });
 
-    size_t read = f.get();
+    auto [ec, read] = c.get();
+
+    if (ec) {
+      throw boost::system::system_error(ec);
+    }
+
     data.resize(read);  // we could have received less than 'size'
     return data;
   }
 
   void write(std::string data) {
-    promise<size_t> p;
-    future<size_t> f(p.get_future());
+    state_captor<error_code, size_t> c;
 
     boost::asio::async_write(
         socket_, boost::asio::buffer(data, data.size()),
-        [p = std::move(p)](error_code ec, size_t written) mutable {
-          if (!ec) {
-            p.set_value(written);
-          } else {
-            p.set_exception(std::exception_ptr(std::make_exception_ptr(ec)));
-          }
-        });
+        [&c](error_code ec, size_t written) mutable { c(ec, written); });
 
-    size_t w = f.get();
-    assert(w == data.size());
+    auto [ec, written] = c.get();
+
+    if (ec) {
+      throw boost::system::system_error(ec);
+    }
+
+    assert(data.size() == written);
   }
 
   tcp::socket socket_;
@@ -110,8 +161,7 @@ int main(int argc, char *argv[]) {
   using boost::fibers::asio::round_robin;
   try {
     boost::asio::io_context io_context{};
-    boost::fibers::use_scheduling_algorithm<round_robin>(
-        io_context);
+    boost::fibers::use_scheduling_algorithm<round_robin>(io_context);
 
     server s(io_context, 1111, [](std::shared_ptr<session> s) {
       std::cout << "new client "
@@ -129,7 +179,6 @@ int main(int argc, char *argv[]) {
     });
 
     s.listen();
-
 
     using std::chrono_literals::operator""ms;
     using std::chrono_literals::operator""s;
