@@ -71,10 +71,3 @@ target_link_libraries(fiber_yield
 #    Boost::boost
 #    Boost::coroutine
 #    )
-
-add_executable(emitter
-    emitter.cpp
-    )
-target_link_libraries(emitter
-    Boost::boost
-    )
